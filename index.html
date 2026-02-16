@@ -3,34 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IMU & Audio Recorder</title>
+    <title>Health Sensing Logger</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-900 text-white p-6 font-sans">
     <div class="max-w-md mx-auto space-y-6">
         <header class="text-center">
-            <h1 class="text-2xl font-bold text-blue-400">Sensor Logger</h1>
-            <p class="text-slate-400 text-sm">GitHub Pages Edition</p>
+            <h1 class="text-2xl font-bold text-blue-400">IMU & Audio Logger</h1>
+            <p id="status" class="text-slate-400 text-sm">Ready to record</p>
         </header>
 
-        <div class="bg-slate-800 p-6 rounded-xl shadow-lg space-y-4">
-            <button id="startBtn" class="w-full bg-green-600 hover:bg-green-500 py-3 rounded-lg font-bold transition">
-                Initialize Sensors
+        <div id="controls" class="bg-slate-800 p-6 rounded-xl shadow-lg space-y-4 border border-slate-700">
+            <button id="startBtn" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-lg font-bold text-lg shadow-lg active:scale-95 transition">
+                Start Recording
             </button>
-            <button id="stopBtn" class="w-full bg-red-600 hover:bg-red-500 py-3 rounded-lg font-bold hidden">
-                Stop & Download
+            <button id="stopBtn" class="w-full bg-red-600 hover:bg-red-500 py-4 rounded-lg font-bold text-lg hidden shadow-lg active:scale-95 transition">
+                Stop & Save
             </button>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 text-xs">
+        <div id="stats" class="grid grid-cols-2 gap-4 text-xs font-mono">
             <div class="bg-slate-800 p-3 rounded border border-slate-700">
-                <p class="text-slate-500 uppercase">Accel (m/s²)</p>
-                <div id="accelData">X: 0, Y: 0, Z: 0</div>
+                <p class="text-slate-500 mb-1">DATA POINTS</p>
+                <div id="count" class="text-xl">0</div>
             </div>
-            <div id="micStatus" class="bg-slate-800 p-3 rounded border border-slate-700">
-                <p class="text-slate-500 uppercase">Microphone</p>
-                <div id="micLevel">Level: 0</div>
+            <div class="bg-slate-800 p-3 rounded border border-slate-700">
+                <p class="text-slate-500 mb-1">ELAPSED</p>
+                <div id="timer" class="text-xl">0.0s</div>
             </div>
+        </div>
+
+        <div id="downloadArea" class="hidden space-y-3 p-4 bg-slate-800 rounded-xl border-2 border-green-500/30">
+            <h3 class="text-green-400 font-bold text-center">Files Ready!</h3>
+            <div id="linksContainer" class="flex flex-col gap-3">
+                </div>
+            <button onclick="location.reload()" class="w-full mt-4 text-slate-500 text-xs underline">Discard & Start Over</button>
         </div>
     </div>
 
@@ -39,64 +46,89 @@
         let mediaRecorder;
         let audioChunks = [];
         let isRecording = false;
+        let startTime;
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const downloadArea = document.getElementById('downloadArea');
+        const linksContainer = document.getElementById('linksContainer');
 
         startBtn.onclick = async () => {
-            // 1. Request iOS Motion Permissions (Specific to Safari)
-            if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                const permission = await DeviceMotionEvent.requestPermission();
-                if (permission !== 'granted') return alert("Permission denied");
-            }
-
-            // 2. Initialize Microphone
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-            mediaRecorder.start();
-
-            // 3. Start IMU Tracking
-            window.addEventListener('devicemotion', (event) => {
-                if (!isRecording) return;
-                const { x, y, z } = event.accelerationIncludingGravity;
-                const { alpha, beta, gamma } = event.rotationRate || {alpha:0, beta:0, gamma:0};
+            try {
+                // 1. Request Microphone
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                 
-                imuData.push([Date.now(), x, y, z, alpha, beta, gamma]);
-                document.getElementById('accelData').innerText = `X: ${x?.toFixed(2)}, Y: ${y?.toFixed(2)}, Z: ${z?.toFixed(2)}`;
-            });
+                // 2. Request iOS Motion Permissions (Important!)
+                if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') throw new Error("Motion permission denied");
+                }
 
-            isRecording = true;
-            startBtn.classList.add('hidden');
-            stopBtn.classList.remove('hidden');
+                // 3. Setup Motion Listener
+                window.addEventListener('devicemotion', handleMotion);
+
+                // Start
+                mediaRecorder.start();
+                isRecording = true;
+                startTime = Date.now();
+                
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                document.getElementById('status').innerText = "🔴 Recording...";
+                
+                updateLoop();
+
+            } catch (err) {
+                alert("Error: " + err.message);
+                console.error(err);
+            }
         };
+
+        function handleMotion(event) {
+            if (!isRecording) return;
+            const { x, y, z } = event.accelerationIncludingGravity || {x:0,y:0,z:0};
+            const { alpha, beta, gamma } = event.rotationRate || {alpha:0,beta:0,gamma:0};
+            imuData.push([Date.now(), x, y, z, alpha, beta, gamma]);
+        }
+
+        function updateLoop() {
+            if (!isRecording) return;
+            document.getElementById('count').innerText = imuData.length - 1;
+            document.getElementById('timer').innerText = ((Date.now() - startTime)/1000).toFixed(1) + "s";
+            requestAnimationFrame(updateLoop);
+        }
 
         stopBtn.onclick = () => {
             isRecording = false;
             mediaRecorder.stop();
+            window.removeEventListener('devicemotion', handleMotion);
 
             mediaRecorder.onstop = () => {
-                // Download IMU Data as CSV
-                const csvContent = "data:text/csv;charset=utf-8," + imuData.map(e => e.join(",")).join("\n");
-                const encodedUri = encodeURI(csvContent);
-                downloadFile(encodedUri, "imu_data.csv");
+                // Show the download area
+                document.getElementById('controls').classList.add('hidden');
+                document.getElementById('status').innerText = "✅ Capture Complete";
+                downloadArea.classList.remove('hidden');
 
-                // Download Audio as WAV/WebM
+                // Create CSV Download Link
+                const csvBlob = new Blob([imuData.map(e => e.join(",")).join("\n")], { type: 'text/csv' });
+                createDownloadButton(csvBlob, "sensor_data.csv", "bg-blue-600", "Download IMU Data (CSV)");
+
+                // Create Audio Download Link
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                const audioUrl = URL.createObjectURL(audioBlob);
-                downloadFile(audioUrl, "audio_capture.webm");
-                
-                location.reload(); // Reset state
+                createDownloadButton(audioBlob, "audio_recording.webm", "bg-purple-600", "Download Audio (WEBM)");
             };
         };
 
-        function downloadFile(url, filename) {
-            const link = document.createElement("a");
-            link.setAttribute("href", url);
-            link.setAttribute("download", filename);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+        function createDownloadButton(blob, filename, bgColor, label) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.className = `${bgColor} w-full py-4 rounded-lg text-center font-bold shadow hover:opacity-90 transition`;
+            a.innerText = label;
+            linksContainer.appendChild(a);
         }
     </script>
 </body>
