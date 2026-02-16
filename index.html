@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMU & Audio Recorder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-white p-6 font-sans">
+    <div class="max-w-md mx-auto space-y-6">
+        <header class="text-center">
+            <h1 class="text-2xl font-bold text-blue-400">Sensor Logger</h1>
+            <p class="text-slate-400 text-sm">GitHub Pages Edition</p>
+        </header>
+
+        <div class="bg-slate-800 p-6 rounded-xl shadow-lg space-y-4">
+            <button id="startBtn" class="w-full bg-green-600 hover:bg-green-500 py-3 rounded-lg font-bold transition">
+                Initialize Sensors
+            </button>
+            <button id="stopBtn" class="w-full bg-red-600 hover:bg-red-500 py-3 rounded-lg font-bold hidden">
+                Stop & Download
+            </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 text-xs">
+            <div class="bg-slate-800 p-3 rounded border border-slate-700">
+                <p class="text-slate-500 uppercase">Accel (m/s²)</p>
+                <div id="accelData">X: 0, Y: 0, Z: 0</div>
+            </div>
+            <div id="micStatus" class="bg-slate-800 p-3 rounded border border-slate-700">
+                <p class="text-slate-500 uppercase">Microphone</p>
+                <div id="micLevel">Level: 0</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let imuData = [["timestamp", "accel_x", "accel_y", "accel_z", "gyro_alpha", "gyro_beta", "gyro_gamma"]];
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+
+        startBtn.onclick = async () => {
+            // 1. Request iOS Motion Permissions (Specific to Safari)
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                const permission = await DeviceMotionEvent.requestPermission();
+                if (permission !== 'granted') return alert("Permission denied");
+            }
+
+            // 2. Initialize Microphone
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.start();
+
+            // 3. Start IMU Tracking
+            window.addEventListener('devicemotion', (event) => {
+                if (!isRecording) return;
+                const { x, y, z } = event.accelerationIncludingGravity;
+                const { alpha, beta, gamma } = event.rotationRate || {alpha:0, beta:0, gamma:0};
+                
+                imuData.push([Date.now(), x, y, z, alpha, beta, gamma]);
+                document.getElementById('accelData').innerText = `X: ${x?.toFixed(2)}, Y: ${y?.toFixed(2)}, Z: ${z?.toFixed(2)}`;
+            });
+
+            isRecording = true;
+            startBtn.classList.add('hidden');
+            stopBtn.classList.remove('hidden');
+        };
+
+        stopBtn.onclick = () => {
+            isRecording = false;
+            mediaRecorder.stop();
+
+            mediaRecorder.onstop = () => {
+                // Download IMU Data as CSV
+                const csvContent = "data:text/csv;charset=utf-8," + imuData.map(e => e.join(",")).join("\n");
+                const encodedUri = encodeURI(csvContent);
+                downloadFile(encodedUri, "imu_data.csv");
+
+                // Download Audio as WAV/WebM
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                downloadFile(audioUrl, "audio_capture.webm");
+                
+                location.reload(); // Reset state
+            };
+        };
+
+        function downloadFile(url, filename) {
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
