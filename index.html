@@ -55,21 +55,24 @@
 
         startBtn.onclick = async () => {
             try {
-                // 1. Request Microphone
+                // 1. Request iOS Motion Permissions FIRST
+                // This must happen immediately after the click to be valid.
+                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        throw new Error("Motion permission denied");
+                    }
+                }
+        
+                // 2. Request Microphone (Now that motion is cleared)
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
                 mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                 
-                // 2. Request iOS Motion Permissions (Important!)
-                if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                    const permission = await DeviceMotionEvent.requestPermission();
-                    if (permission !== 'granted') throw new Error("Motion permission denied");
-                }
-
                 // 3. Setup Motion Listener
                 window.addEventListener('devicemotion', handleMotion);
-
-                // Start
+        
+                // UI Updates and Start
                 mediaRecorder.start();
                 isRecording = true;
                 startTime = Date.now();
@@ -79,7 +82,7 @@
                 document.getElementById('status').innerText = "🔴 Recording...";
                 
                 updateLoop();
-
+        
             } catch (err) {
                 alert("Error: " + err.message);
                 console.error(err);
