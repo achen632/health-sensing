@@ -11,7 +11,6 @@
         <header class="text-center">
             <h1 class="text-2xl font-bold text-blue-400">IMU & Audio Logger</h1>
             <p id="status" class="text-slate-400 text-sm">Ready to record</p>
-            <div id="wakeLockStatus" class="text-[10px] uppercase tracking-widest mt-2 text-slate-500">Wake Lock: Inactive</div>
         </header>
 
         <div id="controls" class="bg-slate-800 p-6 rounded-xl shadow-lg space-y-4 border border-slate-700">
@@ -36,7 +35,8 @@
 
         <div id="downloadArea" class="hidden space-y-3 p-4 bg-slate-800 rounded-xl border-2 border-green-500/30">
             <h3 class="text-green-400 font-bold text-center">Files Ready!</h3>
-            <div id="linksContainer" class="flex flex-col gap-3"></div>
+            <div id="linksContainer" class="flex flex-col gap-3">
+                </div>
             <button onclick="location.reload()" class="w-full mt-4 text-slate-500 text-xs underline">Discard & Start Over</button>
         </div>
     </div>
@@ -47,60 +47,32 @@
         let audioChunks = [];
         let isRecording = false;
         let startTime;
-        let wakeLock = null;
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const downloadArea = document.getElementById('downloadArea');
         const linksContainer = document.getElementById('linksContainer');
-        const wakeStatusUI = document.getElementById('wakeLockStatus');
-
-        // --- Wake Lock Logic ---
-        async function requestWakeLock() {
-            if ('wakeLock' in navigator) {
-                try {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                    wakeStatusUI.innerText = "Wake Lock: ACTIVE ☀️";
-                    wakeStatusUI.classList.replace('text-slate-500', 'text-yellow-500');
-                    
-                    wakeLock.addEventListener('release', () => {
-                        console.log('Wake Lock was released');
-                    });
-                } catch (err) {
-                    wakeStatusUI.innerText = `Wake Lock Error: ${err.message}`;
-                }
-            } else {
-                wakeStatusUI.innerText = "Wake Lock: Not supported in this browser";
-            }
-        }
-
-        // Re-request wake lock when app is brought back to foreground
-        document.addEventListener('visibilitychange', async () => {
-            if (wakeLock !== null && document.visibilityState === 'visible' && isRecording) {
-                await requestWakeLock();
-            }
-        });
 
         startBtn.onclick = async () => {
             try {
-                // 1. Request Microphone
+                // 1. Request iOS Motion Permissions FIRST
+                // This must happen immediately after the click to be valid.
+                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        throw new Error("Motion permission denied");
+                    }
+                }
+        
+                // 2. Request Microphone (Now that motion is cleared)
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
                 mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                 
-                // 2. Request iOS Motion Permissions
-                if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                    const permission = await DeviceMotionEvent.requestPermission();
-                    if (permission !== 'granted') throw new Error("Motion permission denied");
-                }
-
-                // 3. Request Wake Lock (Keep screen on)
-                await requestWakeLock();
-
-                // 4. Setup Motion Listener
+                // 3. Setup Motion Listener
                 window.addEventListener('devicemotion', handleMotion);
-
-                // Start
+        
+                // UI Updates and Start
                 mediaRecorder.start();
                 isRecording = true;
                 startTime = Date.now();
@@ -110,7 +82,7 @@
                 document.getElementById('status').innerText = "🔴 Recording...";
                 
                 updateLoop();
-
+        
             } catch (err) {
                 alert("Error: " + err.message);
                 console.error(err);
@@ -119,7 +91,6 @@
 
         function handleMotion(event) {
             if (!isRecording) return;
-            // accelerationIncludingGravity is best for breathing/chest tilt
             const { x, y, z } = event.accelerationIncludingGravity || {x:0,y:0,z:0};
             const { alpha, beta, gamma } = event.rotationRate || {alpha:0,beta:0,gamma:0};
             imuData.push([Date.now(), x, y, z, alpha, beta, gamma]);
@@ -132,31 +103,24 @@
             requestAnimationFrame(updateLoop);
         }
 
-        stopBtn.onclick = async () => {
+        stopBtn.onclick = () => {
             isRecording = false;
             mediaRecorder.stop();
             window.removeEventListener('devicemotion', handleMotion);
 
-            // Release Wake Lock
-            if (wakeLock !== null) {
-                await wakeLock.release();
-                wakeLock = null;
-                wakeStatusUI.innerText = "Wake Lock: Released";
-                wakeStatusUI.classList.replace('text-yellow-500', 'text-slate-500');
-            }
-
             mediaRecorder.onstop = () => {
+                // Show the download area
                 document.getElementById('controls').classList.add('hidden');
                 document.getElementById('status').innerText = "✅ Capture Complete";
                 downloadArea.classList.remove('hidden');
 
-                // Create CSV
+                // Create CSV Download Link
                 const csvBlob = new Blob([imuData.map(e => e.join(",")).join("\n")], { type: 'text/csv' });
-                createDownloadButton(csvBlob, `imu_${Date.now()}.csv`, "bg-blue-600", "Download IMU Data (CSV)");
+                createDownloadButton(csvBlob, "sensor_data.csv", "bg-blue-600", "Download IMU Data (CSV)");
 
-                // Create Audio (WebM)
+                // Create Audio Download Link
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                createDownloadButton(audioBlob, `audio_${Date.now()}.webm`, "bg-purple-600", "Download Audio (WEBM)");
+                createDownloadButton(audioBlob, "audio_recording.webm", "bg-purple-600", "Download Audio (WEBM)");
             };
         };
 
@@ -165,7 +129,7 @@
             const a = document.createElement('a');
             a.href = url;
             a.download = filename;
-            a.className = `${bgColor} w-full py-4 rounded-lg text-center font-bold shadow hover:opacity-90 transition block`;
+            a.className = `${bgColor} w-full py-4 rounded-lg text-center font-bold shadow hover:opacity-90 transition`;
             a.innerText = label;
             linksContainer.appendChild(a);
         }
