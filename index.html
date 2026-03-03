@@ -55,8 +55,6 @@
 
         startBtn.onclick = async () => {
             try {
-                // 1. Request iOS Motion Permissions FIRST
-                // This must happen immediately after the click to be valid.
                 if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                     const permission = await DeviceMotionEvent.requestPermission();
                     if (permission !== 'granted') {
@@ -64,22 +62,19 @@
                     }
                 }
         
-                // 2. Request Microphone (Now that motion is cleared)
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
                 mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                 
-                // 3. Setup Motion Listener
                 window.addEventListener('devicemotion', handleMotion);
         
-                // UI Updates and Start
                 mediaRecorder.start();
                 isRecording = true;
                 startTime = Date.now();
                 
                 startBtn.classList.add('hidden');
                 stopBtn.classList.remove('hidden');
-                document.getElementById('status').innerText = "🔴 Recording...";
+                document.getElementById('status').innerText = "Recording...";
                 
                 updateLoop();
         
@@ -109,16 +104,13 @@
             window.removeEventListener('devicemotion', handleMotion);
 
             mediaRecorder.onstop = () => {
-                // Show the download area
                 document.getElementById('controls').classList.add('hidden');
                 document.getElementById('status').innerText = "✅ Capture Complete";
                 downloadArea.classList.remove('hidden');
 
-                // Create CSV Download Link
                 const csvBlob = new Blob([imuData.map(e => e.join(",")).join("\n")], { type: 'text/csv' });
                 createDownloadButton(csvBlob, "sensor_data.csv", "bg-blue-600", "Download IMU Data (CSV)");
 
-                // Create Audio Download Link
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                 createDownloadButton(audioBlob, "audio_recording.webm", "bg-purple-600", "Download Audio (WEBM)");
             };
