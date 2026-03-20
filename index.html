@@ -3,128 +3,257 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Health Sensing Logger</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Human Sensing Benchmarking</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #003057; /* GT Blue */
+            --secondary: #B3A369; /* GT Gold */
+            --bg: #f4f4f4;
+        }
+        body { font-family: -apple-system, sans-serif; margin: 0; background: var(--bg); color: #333; }
+        header { background: var(--primary); color: white; padding: 1rem; text-align: center; }
+        .container { padding: 20px; max-width: 600px; margin: auto; }
+        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .hidden { display: none; }
+        button { 
+            background: var(--primary); color: white; border: none; padding: 12px 20px; 
+            border-radius: 8px; cursor: pointer; font-size: 16px; width: 100%; margin: 5px 0;
+        }
+        button:active { opacity: 0.8; }
+        .test-box { text-align: center; min-height: 300px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        #e-shape { font-weight: bold; line-height: 1; display: inline-block; }
+        canvas { max-width: 100%; margin-top: 20px; }
+        .choice-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 20px; }
+    </style>
 </head>
-<body class="bg-slate-900 text-white p-6 font-sans">
-    <div class="max-w-md mx-auto space-y-6">
-        <header class="text-center">
-            <h1 class="text-2xl font-bold text-blue-400">IMU & Audio Logger</h1>
-            <p id="status" class="text-slate-400 text-sm">Ready to record</p>
-        </header>
+<body>
 
-        <div id="controls" class="bg-slate-800 p-6 rounded-xl shadow-lg space-y-4 border border-slate-700">
-            <button id="startBtn" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-lg font-bold text-lg shadow-lg active:scale-95 transition">
-                Start Recording
-            </button>
-            <button id="stopBtn" class="w-full bg-red-600 hover:bg-red-500 py-4 rounded-lg font-bold text-lg hidden shadow-lg active:scale-95 transition">
-                Stop & Save
-            </button>
-        </div>
+<header>
+    <h1>Sensing Benchmark</h1>
+</header>
 
-        <div id="stats" class="grid grid-cols-2 gap-4 text-xs font-mono">
-            <div class="bg-slate-800 p-3 rounded border border-slate-700">
-                <p class="text-slate-500 mb-1">DATA POINTS</p>
-                <div id="count" class="text-xl">0</div>
-            </div>
-            <div class="bg-slate-800 p-3 rounded border border-slate-700">
-                <p class="text-slate-500 mb-1">ELAPSED</p>
-                <div id="timer" class="text-xl">0.0s</div>
-            </div>
-        </div>
-
-        <div id="downloadArea" class="hidden space-y-3 p-4 bg-slate-800 rounded-xl border-2 border-green-500/30">
-            <h3 class="text-green-400 font-bold text-center">Files Ready!</h3>
-            <div id="linksContainer" class="flex flex-col gap-3">
-                </div>
-            <button onclick="location.reload()" class="w-full mt-4 text-slate-500 text-xs underline">Discard & Start Over</button>
-        </div>
+<div class="container">
+    <div id="menu">
+        <h3>Vision Tests</h3>
+        <button onclick="startTest('contrast')">Contrast Sensitivity</button>
+        <button onclick="startTest('acuity')">Smallest Noticeable Size (E)</button>
+        
+        <h3>Hearing Tests</h3>
+        <button onclick="startTest('pitch-range')">Pitch Frequency Range</button>
+        <button onclick="startTest('gap-detection')">Sound Gap Detection (3AFC)</button>
+        <button onclick="startTest('pitch-threshold')">Pitch Threshold (3AFC)</button>
     </div>
 
-    <script>
-        let imuData = [["timestamp", "accel_x", "accel_y", "accel_z", "gyro_alpha", "gyro_beta", "gyro_gamma"]];
-        let mediaRecorder;
-        let audioChunks = [];
-        let isRecording = false;
-        let startTime;
+    <div id="test-area" class="hidden">
+        <button onclick="goHome()" style="background:#666; width: auto; font-size: 12px;">← Back</button>
+        <div id="test-ui" class="card"></div>
+    </div>
+</div>
 
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const downloadArea = document.getElementById('downloadArea');
-        const linksContainer = document.getElementById('linksContainer');
+<script>
+    let audioCtx = null;
 
-        startBtn.onclick = async () => {
-            try {
-                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-                    const permission = await DeviceMotionEvent.requestPermission();
-                    if (permission !== 'granted') {
-                        throw new Error("Motion permission denied");
-                    }
+    function goHome() {
+        document.getElementById('menu').classList.remove('hidden');
+        document.getElementById('test-area').classList.add('hidden');
+        if(audioCtx) audioCtx.close();
+    }
+
+    function startTest(type) {
+        document.getElementById('menu').classList.add('hidden');
+        document.getElementById('test-area').classList.remove('hidden');
+        const ui = document.getElementById('test-ui');
+        ui.innerHTML = '';
+        
+        if (type === 'contrast') initContrast(ui);
+        if (type === 'pitch-range') initPitchRange(ui);
+        if (type === 'acuity') initAcuity(ui);
+        if (type === 'pitch-threshold') initPitchThreshold(ui);
+    }
+
+    // --- VISION: CONTRAST SENSITIVITY ---
+    function initContrast(ui) {
+        let contrast = 100;
+        const letters = "NHZDSORKSV";
+        ui.innerHTML = `
+            <h3>Contrast Sensitivity</h3>
+            <p>Identify the letter below. If you can't see it, the test ends.</p>
+            <div id="display-letter" style="font-size: 80px; font-weight: bold; margin: 40px 0;">A</div>
+            <input type="text" id="letter-input" placeholder="Type letter" style="padding:10px; width:50px; text-align:center; font-size:20px;">
+            <button onclick="checkContrast()">Submit</button>
+            <p id="contrast-log"></p>
+        `;
+        
+        window.checkContrast = () => {
+            const input = document.getElementById('letter-input');
+            const display = document.getElementById('display-letter');
+            if (input.value.toUpperCase() === display.innerText) {
+                contrast -= 5;
+                if (contrast < 1) contrast = 1;
+                display.style.color = `rgba(0,0,0,${contrast/100})`;
+                display.innerText = letters[Math.floor(Math.random()*letters.length)];
+                input.value = '';
+            } else {
+                const bitRes = Math.log2(100/contrast).toFixed(2);
+                ui.innerHTML = `<h3>Result</h3><p>Sensitivity: ${contrast}%</p><p>Est. Bit Resolution: ~${bitRes} bits</p><button onclick="goHome()">Done</button>`;
+            }
+        };
+    }
+
+    // --- VISION: TUMBLING E ---
+    function initAcuity(ui) {
+        let size = 50; 
+        const orientations = [0, 90, 180, 270];
+        let currentOri = 0;
+
+        function updateE() {
+            currentOri = orientations[Math.floor(Math.random()*4)];
+            const e = document.getElementById('e-shape');
+            e.style.fontSize = size + "px";
+            e.style.transform = `rotate(${currentOri}deg)`;
+        }
+
+        ui.innerHTML = `
+            <h3>Smallest Noticeable Size</h3>
+            <div class="test-box"><div id="e-shape">E</div></div>
+            <p>Which way is the E pointing?</p>
+            <div class="choice-grid">
+                <button onclick="checkE(0)">Up</button>
+                <button onclick="checkE(90)">Right</button>
+                <button onclick="checkE(180)">Down</button>
+                <button onclick="checkE(270)">Left</button>
+            </div>
+        `;
+        updateE();
+
+        window.checkE = (ans) => {
+            if (ans === currentOri) {
+                size -= 2;
+                if(size < 2) size = 2;
+                updateE();
+            } else {
+                ui.innerHTML = `<h3>Result</h3><p>Smallest Size: ${size}px</p><p><i>Note: Calculate arcmin based on your viewing distance d.</i></p><button onclick="goHome()">Done</button>`;
+            }
+        };
+    }
+
+    // --- HEARING: PITCH RANGE ---
+    function initPitchRange(ui) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        ui.innerHTML = `
+            <h3>Pitch Range Test</h3>
+            <p id="freq-display">Frequency: 1000 Hz</p>
+            <input type="range" id="pitch-slider" min="20" max="20000" value="1000" style="width:100%">
+            <button onmousedown="startTone()" onmouseup="stopTone()" ontouchstart="startTone()" ontouchend="stopTone()">Hold to Play</button>
+            <button onclick="recordPitch()">This is my limit</button>
+        `;
+
+        let osc = null;
+        const slider = document.getElementById('pitch-slider');
+        const display = document.getElementById('freq-display');
+
+        slider.oninput = () => { display.innerText = `Frequency: ${slider.value} Hz`; };
+
+        window.startTone = () => {
+            osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.frequency.setValueAtTime(slider.value, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+        };
+
+        window.stopTone = () => { if(osc) { osc.stop(); osc = null; } };
+        window.recordPitch = () => {
+            ui.innerHTML = `<h3>Result</h3><p>Highest Frequency: ${slider.value} Hz</p><button onclick="goHome()">Done</button>`;
+        };
+    }
+
+    // --- ADAPTIVE 3AFC LOGIC (Example: Pitch Threshold) ---
+    function initPitchThreshold(ui) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let referenceFreq = 440;
+        let delta = 20; // Starting difference
+        let trials = [];
+        let reversals = [];
+        let consecutiveCorrect = 0;
+        let lastDirection = null; // 'harder' or 'easier'
+
+        function playTrial(isCorrectChoice) {
+            const freq = isCorrectChoice ? referenceFreq + delta : referenceFreq;
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.frequency.value = freq;
+            g.gain.setTargetAtTime(0.1, audioCtx.currentTime, 0.05);
+            osc.connect(g); g.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+        }
+
+        ui.innerHTML = `<h3>Pitch Threshold (3AFC)</h3>
+            <p>Two tones are ${referenceFreq}Hz. One is slightly higher. Find the higher one.</p>
+            <button onclick="playSet()">Play Tones</button>
+            <div class="choice-grid" id="choices" style="visibility:hidden">
+                <button onclick="handle3AFC(0)">1</button>
+                <button onclick="handle3AFC(1)">2</button>
+                <button onclick="handle3AFC(2)">3</button>
+            </div>
+            <canvas id="resultChart"></canvas>`;
+
+        let correctIndex = 0;
+
+        window.playSet = async () => {
+            correctIndex = Math.floor(Math.random() * 3);
+            document.getElementById('choices').style.visibility = 'hidden';
+            for(let i=0; i<3; i++) {
+                playTrial(i === correctIndex);
+                await new Promise(r => setTimeout(r, 800));
+            }
+            document.getElementById('choices').style.visibility = 'visible';
+        };
+
+        window.handle3AFC = (choice) => {
+            const isCorrect = (choice === correctIndex);
+            trials.push(delta);
+            
+            if (isCorrect) {
+                consecutiveCorrect++;
+                if (consecutiveCorrect === 2) {
+                    if(lastDirection === 'easier') reversals.push(delta);
+                    lastDirection = 'harder';
+                    delta *= 0.8; // Make it harder
+                    consecutiveCorrect = 0;
                 }
-        
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                
-                window.addEventListener('devicemotion', handleMotion);
-        
-                mediaRecorder.start();
-                isRecording = true;
-                startTime = Date.now();
-                
-                startBtn.classList.add('hidden');
-                stopBtn.classList.remove('hidden');
-                document.getElementById('status').innerText = "Recording...";
-                
-                updateLoop();
-        
-            } catch (err) {
-                alert("Error: " + err.message);
-                console.error(err);
+            } else {
+                if(lastDirection === 'harder') reversals.push(delta);
+                lastDirection = 'easier';
+                delta *= 1.2; // Make it easier
+                consecutiveCorrect = 0;
+            }
+
+            if (reversals.length >= 6) {
+                finish3AFC();
+            } else {
+                playSet();
             }
         };
 
-        function handleMotion(event) {
-            if (!isRecording) return;
-            const { x, y, z } = event.accelerationIncludingGravity || {x:0,y:0,z:0};
-            const { alpha, beta, gamma } = event.rotationRate || {alpha:0,beta:0,gamma:0};
-            imuData.push([Date.now(), x, y, z, alpha, beta, gamma]);
+        function finish3AFC() {
+            const avg = reversals.slice(-4).reduce((a,b) => a+b, 0) / 4;
+            ui.innerHTML = `<h3>Result</h3><p>Threshold: ${avg.toFixed(2)} Hz</p>
+            <canvas id="chart"></canvas><button onclick="goHome()">Done</button>`;
+            
+            new Chart(document.getElementById('chart'), {
+                type: 'line',
+                data: {
+                    labels: trials.map((_, i) => i),
+                    datasets: [{ label: 'Delta (Hz)', data: trials, borderColor: '#003057' }]
+                }
+            });
         }
-
-        function updateLoop() {
-            if (!isRecording) return;
-            document.getElementById('count').innerText = imuData.length - 1;
-            document.getElementById('timer').innerText = ((Date.now() - startTime)/1000).toFixed(1) + "s";
-            requestAnimationFrame(updateLoop);
-        }
-
-        stopBtn.onclick = () => {
-            isRecording = false;
-            mediaRecorder.stop();
-            window.removeEventListener('devicemotion', handleMotion);
-
-            mediaRecorder.onstop = () => {
-                document.getElementById('controls').classList.add('hidden');
-                document.getElementById('status').innerText = "✅ Capture Complete";
-                downloadArea.classList.remove('hidden');
-
-                const csvBlob = new Blob([imuData.map(e => e.join(",")).join("\n")], { type: 'text/csv' });
-                createDownloadButton(csvBlob, "sensor_data.csv", "bg-blue-600", "Download IMU Data (CSV)");
-
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                createDownloadButton(audioBlob, "audio_recording.webm", "bg-purple-600", "Download Audio (WEBM)");
-            };
-        };
-
-        function createDownloadButton(blob, filename, bgColor, label) {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.className = `${bgColor} w-full py-4 rounded-lg text-center font-bold shadow hover:opacity-90 transition`;
-            a.innerText = label;
-            linksContainer.appendChild(a);
-        }
-    </script>
+    }
+</script>
 </body>
 </html>
