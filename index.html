@@ -1,130 +1,537 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Health Sensing Logger</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Human Sensing Benchmarking</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #003057;
+            /* GT Blue */
+            --secondary: #B3A369;
+            /* GT Gold */
+            --bg: #f4f4f4;
+        }
+
+        body {
+            font-family: -apple-system, sans-serif;
+            margin: 0;
+            background: var(--bg);
+            color: #333;
+        }
+
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 600px;
+            margin: auto;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin: 5px 0;
+        }
+
+        button:active {
+            opacity: 0.8;
+        }
+
+        .test-box {
+            text-align: center;
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #e-shape {
+            font-weight: bold;
+            line-height: 1;
+            display: inline-block;
+        }
+
+        canvas {
+            max-width: 100%;
+            margin-top: 20px;
+        }
+
+        .choice-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 20px;
+        }
+    </style>
 </head>
-<body class="bg-slate-900 text-white p-6 font-sans">
-    <div class="max-w-md mx-auto space-y-6">
-        <header class="text-center">
-            <h1 class="text-2xl font-bold text-blue-400">IMU & Audio Logger</h1>
-            <p id="status" class="text-slate-400 text-sm">Ready to record</p>
-        </header>
 
-        <div id="controls" class="bg-slate-800 p-6 rounded-xl shadow-lg space-y-4 border border-slate-700">
-            <button id="startBtn" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-lg font-bold text-lg shadow-lg active:scale-95 transition">
-                Start Recording
-            </button>
-            <button id="stopBtn" class="w-full bg-red-600 hover:bg-red-500 py-4 rounded-lg font-bold text-lg hidden shadow-lg active:scale-95 transition">
-                Stop & Save
-            </button>
+<body>
+
+    <header>
+        <h1>Sensing Benchmark</h1>
+    </header>
+
+    <div class="container">
+        <div id="menu">
+            <h3>Vision Tests</h3>
+            <button onclick="startTest('contrast')">Contrast Sensitivity</button>
+            <button onclick="startTest('acuity')">Smallest Noticeable Size (E)</button>
+
+            <h3>Hearing Tests</h3>
+            <button onclick="startTest('pitch-range')">Pitch Frequency Range</button>
+            <button onclick="startTest('gap-detection')">Sound Gap Detection (3AFC)</button>
+            <button onclick="startTest('pitch-threshold')">Pitch Threshold (3AFC)</button>
+            <button onclick="startTest('amplitude')">Amplitude Threshold (3AFC)</button>
         </div>
 
-        <div id="stats" class="grid grid-cols-2 gap-4 text-xs font-mono">
-            <div class="bg-slate-800 p-3 rounded border border-slate-700">
-                <p class="text-slate-500 mb-1">DATA POINTS</p>
-                <div id="count" class="text-xl">0</div>
-            </div>
-            <div class="bg-slate-800 p-3 rounded border border-slate-700">
-                <p class="text-slate-500 mb-1">ELAPSED</p>
-                <div id="timer" class="text-xl">0.0s</div>
-            </div>
-        </div>
-
-        <div id="downloadArea" class="hidden space-y-3 p-4 bg-slate-800 rounded-xl border-2 border-green-500/30">
-            <h3 class="text-green-400 font-bold text-center">Files Ready!</h3>
-            <div id="linksContainer" class="flex flex-col gap-3">
-                </div>
-            <button onclick="location.reload()" class="w-full mt-4 text-slate-500 text-xs underline">Discard & Start Over</button>
+        <div id="test-area" class="hidden">
+            <button onclick="goHome()" style="background:#666; width: auto; font-size: 12px;">← Back</button>
+            <div id="test-ui" class="card"></div>
         </div>
     </div>
 
     <script>
-        let imuData = [["timestamp", "accel_x", "accel_y", "accel_z", "gyro_alpha", "gyro_beta", "gyro_gamma"]];
-        let mediaRecorder;
-        let audioChunks = [];
-        let isRecording = false;
-        let startTime;
+        let audioCtx = null;
 
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const downloadArea = document.getElementById('downloadArea');
-        const linksContainer = document.getElementById('linksContainer');
+        function goHome() {
+            document.getElementById('menu').classList.remove('hidden');
+            document.getElementById('test-area').classList.add('hidden');
+            if (audioCtx) audioCtx.close();
+        }
 
-        startBtn.onclick = async () => {
-            try {
-                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-                    const permission = await DeviceMotionEvent.requestPermission();
-                    if (permission !== 'granted') {
-                        throw new Error("Motion permission denied");
-                    }
+        function startTest(type) {
+            document.getElementById('menu').classList.add('hidden');
+            document.getElementById('test-area').classList.remove('hidden');
+            const ui = document.getElementById('test-ui');
+            ui.innerHTML = '';
+
+            if (type === 'contrast') initContrast(ui);
+            if (type === 'pitch-range') initPitchRange(ui);
+            if (type === 'acuity') initAcuity(ui);
+            if (type === 'pitch-threshold') initPitchThreshold(ui);
+            if (type === 'gap-detection') initGapDetection(ui);
+            if (type === 'amplitude') initAmplitudeThreshold(ui);
+        }
+
+        // --- VISION: CONTRAST SENSITIVITY ---
+        function initContrast(ui) {
+            let contrast = 100;
+            const letters = "NHZDSORKSV";
+            ui.innerHTML = `
+            <h3>Contrast Sensitivity</h3>
+            <p>Identify the letter below. If you can't see it, the test ends.</p>
+            <div id="display-letter" style="font-size: 80px; font-weight: bold; margin: 40px 0;">A</div>
+            <input type="text" id="letter-input" placeholder="Type letter" style="padding:10px; width:50px; text-align:center; font-size:20px;">
+            <button onclick="checkContrast()">Submit</button>
+            <p id="contrast-log"></p>
+        `;
+
+            window.checkContrast = () => {
+                const input = document.getElementById('letter-input');
+                const display = document.getElementById('display-letter');
+                if (input.value.toUpperCase() === display.innerText) {
+                    contrast -= 10;
+                    if (contrast < 1) contrast = 1;
+                    display.style.color = `rgba(0,0,0,${contrast / 100})`;
+                    display.innerText = letters[Math.floor(Math.random() * letters.length)];
+                    input.value = '';
+                } else {
+                    const bitRes = Math.log2(100 / contrast).toFixed(2);
+                    ui.innerHTML = `<h3>Result</h3><p>Sensitivity: ${contrast}%</p><p>Est. Bit Resolution: ~${bitRes} bits</p><button onclick="goHome()">Done</button>`;
                 }
-        
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                
-                window.addEventListener('devicemotion', handleMotion);
-        
-                mediaRecorder.start();
-                isRecording = true;
-                startTime = Date.now();
-                
-                startBtn.classList.add('hidden');
-                stopBtn.classList.remove('hidden');
-                document.getElementById('status').innerText = "Recording...";
-                
-                updateLoop();
-        
-            } catch (err) {
-                alert("Error: " + err.message);
-                console.error(err);
-            }
-        };
-
-        function handleMotion(event) {
-            if (!isRecording) return;
-            const { x, y, z } = event.accelerationIncludingGravity || {x:0,y:0,z:0};
-            const { alpha, beta, gamma } = event.rotationRate || {alpha:0,beta:0,gamma:0};
-            imuData.push([Date.now(), x, y, z, alpha, beta, gamma]);
-        }
-
-        function updateLoop() {
-            if (!isRecording) return;
-            document.getElementById('count').innerText = imuData.length - 1;
-            document.getElementById('timer').innerText = ((Date.now() - startTime)/1000).toFixed(1) + "s";
-            requestAnimationFrame(updateLoop);
-        }
-
-        stopBtn.onclick = () => {
-            isRecording = false;
-            mediaRecorder.stop();
-            window.removeEventListener('devicemotion', handleMotion);
-
-            mediaRecorder.onstop = () => {
-                document.getElementById('controls').classList.add('hidden');
-                document.getElementById('status').innerText = "✅ Capture Complete";
-                downloadArea.classList.remove('hidden');
-
-                const csvBlob = new Blob([imuData.map(e => e.join(",")).join("\n")], { type: 'text/csv' });
-                createDownloadButton(csvBlob, "sensor_data.csv", "bg-blue-600", "Download IMU Data (CSV)");
-
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                createDownloadButton(audioBlob, "audio_recording.webm", "bg-purple-600", "Download Audio (WEBM)");
             };
-        };
+        }
 
-        function createDownloadButton(blob, filename, bgColor, label) {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.className = `${bgColor} w-full py-4 rounded-lg text-center font-bold shadow hover:opacity-90 transition`;
-            a.innerText = label;
-            linksContainer.appendChild(a);
+        // --- VISION: TUMBLING E ---
+        function initAcuity(ui) {
+            let size = 50;
+            const orientations = [0, 90, 180, 270];
+            let currentOri = 0;
+
+            function updateE() {
+                currentOri = orientations[Math.floor(Math.random() * 4)];
+                const e = document.getElementById('e-shape');
+                e.style.fontSize = size + "px";
+                e.style.transform = `rotate(${currentOri}deg)`;
+            }
+
+            ui.innerHTML = `
+            <h3>Smallest Noticeable Size</h3>
+            <div class="test-box"><div id="e-shape">E</div></div>
+            <p>Which way is the E pointing?</p>
+            <div class="choice-grid">
+                <button onclick="checkE(0)">Up</button>
+                <button onclick="checkE(90)">Right</button>
+                <button onclick="checkE(180)">Down</button>
+                <button onclick="checkE(270)">Left</button>
+            </div>
+        `;
+            updateE();
+
+            window.checkE = (ans) => {
+                if (ans === currentOri) {
+                    size -= 4;
+                    if (size < 2) size = 2;
+                    updateE();
+                } else {
+                    ui.innerHTML = `<h3>Result</h3><p>Smallest Size: ${size}px</p><p><i>Note: Calculate arcmin based on your viewing distance d.</i></p><button onclick="goHome()">Done</button>`;
+                }
+            };
+        }
+
+        // --- HEARING: PITCH RANGE ---
+        function initPitchRange(ui) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            ui.innerHTML = `
+            <h3>Pitch Range Test</h3>
+            <p id="freq-display">Frequency: 1000 Hz</p>
+            <input type="range" id="pitch-slider" min="20" max="20000" value="1000" style="width:100%">
+            <button onmousedown="startTone()" onmouseup="stopTone()" ontouchstart="startTone()" ontouchend="stopTone()">Hold to Play</button>
+            <button onclick="recordPitch()">This is my limit</button>
+        `;
+
+            let osc = null;
+            const slider = document.getElementById('pitch-slider');
+            const display = document.getElementById('freq-display');
+
+            slider.oninput = () => { display.innerText = `Frequency: ${slider.value} Hz`; };
+
+            window.startTone = () => {
+                osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.frequency.setValueAtTime(slider.value, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+            };
+
+            window.stopTone = () => { if (osc) { osc.stop(); osc = null; } };
+            window.recordPitch = () => {
+                ui.innerHTML = `<h3>Result</h3><p>Highest Frequency: ${slider.value} Hz</p><button onclick="goHome()">Done</button>`;
+            };
+        }
+
+        // --- ADAPTIVE 3AFC LOGIC (Example: Pitch Threshold) ---
+        function initPitchThreshold(ui) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let referenceFreq = 440;
+            let delta = 10;
+            let trials = [];      // To store delta values
+            let results = [];     // To store true/false for markers
+            let reversals = [];
+            let consecutiveCorrect = 0;
+            let lastDirection = null;
+
+            // Gradual change: starts fast, gets precise
+            const getStepFactor = () => {
+                if (reversals.length < 2) return 1.5; // Large steps initially
+                if (reversals.length < 4) return 1.2; // Medium steps
+                return 1.1;                          // Fine-tuning steps
+            };
+
+            function playTrial(isCorrectChoice) {
+                const freq = isCorrectChoice ? referenceFreq + delta : referenceFreq;
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.frequency.value = freq;
+                g.gain.setTargetAtTime(0.1, audioCtx.currentTime, 0.05);
+                osc.connect(g); g.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.5);
+            }
+
+            ui.innerHTML = `
+            <h3>Pitch Threshold (3AFC)</h3>
+            <p>Listen to 3 tones. One has a slightly higher pitch.</p>
+            <div id="status-msg" style="color: #B3A369; font-weight: bold; height: 20px;"></div>
+            <button id="play-btn" onclick="playSet()">Play Tones</button>
+            <div class="choice-grid" id="choices" style="visibility:hidden; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                <button onclick="handle3AFC(0)">1</button>
+                <button onclick="handle3AFC(1)">2</button>
+                <button onclick="handle3AFC(2)">3</button>
+            </div>
+            <p id="progress-log">Reversals: 0/6</p>
+        `;
+
+            let correctIndex = 0;
+
+            window.playSet = async () => {
+                correctIndex = Math.floor(Math.random() * 3);
+                const choiceDiv = document.getElementById('choices');
+                const playBtn = document.getElementById('play-btn');
+                const status = document.getElementById('status-msg');
+
+                choiceDiv.style.visibility = 'hidden';
+                playBtn.disabled = true;
+
+                for (let i = 0; i < 3; i++) {
+                    status.innerText = `Playing sound ${i + 1}...`;
+                    playTrial(i === correctIndex);
+                    await new Promise(r => setTimeout(r, 800));
+                }
+
+                status.innerText = "Select the tone that was different:";
+                choiceDiv.style.visibility = 'visible';
+            };
+
+            window.handle3AFC = (choice) => {
+                const isCorrect = (choice === correctIndex);
+                const status = document.getElementById('status-msg');
+                const step = getStepFactor();
+
+                trials.push(delta);
+                results.push(isCorrect);
+
+                if (isCorrect) {
+                    status.innerText = "Correct! ✅";
+                    consecutiveCorrect++;
+                    if (consecutiveCorrect === 2) {
+                        if (lastDirection === 'easier') reversals.push(delta);
+                        lastDirection = 'harder';
+                        delta /= step; // Decrease difference
+                        consecutiveCorrect = 0;
+                    }
+                } else {
+                    status.innerText = "Incorrect ❌";
+                    if (lastDirection === 'harder') reversals.push(delta);
+                    lastDirection = 'easier';
+                    delta *= step; // Increase difference
+                    consecutiveCorrect = 0;
+                }
+
+                document.getElementById('progress-log').innerText = `Reversals: ${reversals.length}/6`;
+
+                if (reversals.length >= 6) {
+                    finish3AFC();
+                } else {
+                    document.getElementById('play-btn').disabled = false;
+                    document.getElementById('choices').style.visibility = 'hidden';
+                }
+            };
+
+            function finish3AFC() {
+                // Threshold is the average of the last 4 reversal points
+                const lastFour = reversals.slice(-4);
+                const threshold = lastFour.reduce((a, b) => a + b, 0) / 4;
+
+                ui.innerHTML = `
+                <h3>Test Complete</h3>
+                <p>Calculated Threshold: <strong>${threshold.toFixed(2)} Hz</strong></p>
+                <canvas id="thresholdChart"></canvas>
+                <button onclick="goHome()">Done</button>
+            `;
+
+                new Chart(document.getElementById('thresholdChart'), {
+                    type: 'line',
+                    data: {
+                        labels: trials.map((_, i) => i + 1),
+                        datasets: [
+                            {
+                                label: 'Parameter Difference (Delta)',
+                                data: trials,
+                                borderColor: '#003057',
+                                pointStyle: results.map(r => r ? 'circle' : 'crossRot'),
+                                pointBackgroundColor: results.map(r => r ? '#28a745' : '#dc3545'),
+                                pointRadius: 6,
+                                showLine: true,
+                                tension: 0.1
+                            },
+                            {
+                                label: 'Threshold',
+                                data: new Array(trials.length).fill(threshold),
+                                borderColor: '#B3A369',
+                                borderDash: [5, 5],
+                                pointRadius: 0,
+                                fill: false
+                            }
+                        ]
+                    },
+                    options: {
+                        scales: {
+                            x: { title: { display: true, text: 'Trial Number' } },
+                            y: { title: { display: true, text: 'Difference (Hz)' } }
+                        }
+                    }
+                });
+            }
+        }
+        function initGapDetection(ui) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let delta = 50; // Starting gap in ms
+            let trials = [], results = [], reversals = [], consecutiveCorrect = 0, lastDirection = null;
+
+            const getStepFactor = () => (reversals.length < 2) ? 1.5 : (reversals.length < 4 ? 1.2 : 1.1);
+
+            function playGapSound(isTarget) {
+                const duration = 0.8;
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.type = 'sine'; // Using a 440Hz tone as carrier
+                osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+
+                g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                if (isTarget) {
+                    // Create the gap in the middle
+                    const now = audioCtx.currentTime;
+                    g.gain.setValueAtTime(0.1, now + 0.3);
+                    g.gain.setValueAtTime(0, now + 0.301); // Cut sound
+                    g.gain.setValueAtTime(0, now + 0.301 + (delta / 1000));
+                    g.gain.setValueAtTime(0.1, now + 0.302 + (delta / 1000)); // Resume sound
+                }
+
+                osc.connect(g); g.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + duration);
+            }
+
+            ui.innerHTML = `<h3>Sound Gap Detection (3AFC)</h3>
+                    <p>Identify the tone with a brief pause/gap in the middle.</p>
+                    <div id="status-msg" style="color: #B3A369; font-weight: bold; height: 20px;"></div>
+                    <button id="play-btn" onclick="playSet()">Play Tones</button>
+                    <div class="choice-grid" id="choices" style="visibility:hidden; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <button onclick="handle3AFC(0)">1</button><button onclick="handle3AFC(1)">2</button><button onclick="handle3AFC(2)">3</button>
+                    </div>
+                    <p id="progress-log">Reversals: 0/6</p>`;
+
+            let correctIndex = 0;
+            window.playSet = async () => {
+                correctIndex = Math.floor(Math.random() * 3);
+                const choiceDiv = document.getElementById('choices');
+                const playBtn = document.getElementById('play-btn');
+                const status = document.getElementById('status-msg');
+                choiceDiv.style.visibility = 'hidden'; playBtn.disabled = true;
+                for (let i = 0; i < 3; i++) {
+                    status.innerText = `Playing sound ${i + 1}...`;
+                    playGapSound(i === correctIndex);
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+                status.innerText = "Which one had the gap?"; choiceDiv.style.visibility = 'visible';
+            };
+
+            window.handle3AFC = (choice) => {
+                const isCorrect = (choice === correctIndex);
+                const step = getStepFactor();
+                trials.push(delta); results.push(isCorrect);
+                if (isCorrect) {
+                    consecutiveCorrect++;
+                    if (consecutiveCorrect === 2) {
+                        if (lastDirection === 'easier') reversals.push(delta);
+                        lastDirection = 'harder'; delta /= step; consecutiveCorrect = 0;
+                    }
+                } else {
+                    if (lastDirection === 'harder') reversals.push(delta);
+                    lastDirection = 'easier'; delta *= step; consecutiveCorrect = 0;
+                }
+                document.getElementById('progress-log').innerText = `Reversals: ${reversals.length}/6`;
+                if (reversals.length >= 6) { finishTest(reversals, trials, results, ui, "ms"); }
+                else { document.getElementById('play-btn').disabled = false; document.getElementById('choices').style.visibility = 'hidden'; }
+            };
+        }
+
+        // --- NEW: AMPLITUDE THRESHOLD ---
+        function initAmplitudeThreshold(ui) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let refGain = 0.1;
+            let delta = 0.05; // Starting gain difference
+            let trials = [], results = [], reversals = [], consecutiveCorrect = 0, lastDirection = null;
+
+            const getStepFactor = () => (reversals.length < 2) ? 1.5 : (reversals.length < 4 ? 1.2 : 1.1);
+
+            function playAmpSound(isTarget) {
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+                // Current Gain vs Ref Gain
+                g.gain.setValueAtTime(isTarget ? refGain + delta : refGain, audioCtx.currentTime);
+                osc.connect(g); g.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+            }
+
+            ui.innerHTML = `<h3>Amplitude Threshold (3AFC)</h3>
+                    <p>Identify the tone that is slightly LOUDER.</p>
+                    <div id="status-msg" style="color: #B3A369; font-weight: bold; height: 20px;"></div>
+                    <button id="play-btn" onclick="playSet()">Play Tones</button>
+                    <div class="choice-grid" id="choices" style="visibility:hidden; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <button onclick="handle3AFC(0)">1</button><button onclick="handle3AFC(1)">2</button><button onclick="handle3AFC(2)">3</button>
+                    </div>
+                    <p id="progress-log">Reversals: 0/6</p>`;
+
+            let correctIndex = 0;
+            window.playSet = async () => {
+                correctIndex = Math.floor(Math.random() * 3);
+                const choiceDiv = document.getElementById('choices');
+                const playBtn = document.getElementById('play-btn');
+                choiceDiv.style.visibility = 'hidden'; playBtn.disabled = true;
+                for (let i = 0; i < 3; i++) {
+                    playAmpSound(i === correctIndex);
+                    await new Promise(r => setTimeout(r, 800));
+                }
+                choiceDiv.style.visibility = 'visible';
+            };
+
+            window.handle3AFC = (choice) => {
+                const isCorrect = (choice === correctIndex);
+                const step = getStepFactor();
+                trials.push(delta); results.push(isCorrect);
+                if (isCorrect) {
+                    consecutiveCorrect++;
+                    if (consecutiveCorrect === 2) {
+                        if (lastDirection === 'easier') reversals.push(delta);
+                        lastDirection = 'harder'; delta /= step; consecutiveCorrect = 0;
+                    }
+                } else {
+                    if (lastDirection === 'harder') reversals.push(delta);
+                    lastDirection = 'easier'; delta *= step; consecutiveCorrect = 0;
+                }
+                document.getElementById('progress-log').innerText = `Reversals: ${reversals.length}/6`;
+                if (reversals.length >= 6) { finishTest(reversals, trials, results, ui, "Gain Units"); }
+                else { document.getElementById('play-btn').disabled = false; document.getElementById('choices').style.visibility = 'hidden'; }
+            };
+        }
+
+        // Helper to render the final chart (prevents code duplication)
+        function finishTest(reversals, trials, results, ui, unit) {
+            const threshold = reversals.slice(-4).reduce((a, b) => a + b, 0) / 4;
+            ui.innerHTML = `<h3>Test Complete</h3><p>Threshold: <strong>${threshold.toFixed(4)} ${unit}</strong></p><canvas id="resChart"></canvas><button onclick="goHome()">Done</button>`;
+            new Chart(document.getElementById('resChart'), {
+                type: 'line',
+                data: {
+                    labels: trials.map((_, i) => i + 1),
+                    datasets: [
+                        { label: 'Delta', data: trials, borderColor: '#003057', pointStyle: results.map(r => r ? 'circle' : 'crossRot'), pointBackgroundColor: results.map(r => r ? '#28a745' : '#dc3545'), pointRadius: 6, showLine: true },
+                        { label: 'Threshold', data: new Array(trials.length).fill(threshold), borderColor: '#B3A369', borderDash: [5, 5], pointRadius: 0 }
+                    ]
+                }
+            });
         }
     </script>
 </body>
+
 </html>
