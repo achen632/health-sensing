@@ -9,9 +9,7 @@
     <style>
         :root {
             --primary: #003057;
-            /* GT Blue */
             --secondary: #B3A369;
-            /* GT Gold */
             --bg: #f4f4f4;
         }
 
@@ -140,7 +138,6 @@
             if (type === 'amplitude') initAmplitudeThreshold(ui);
         }
 
-        // --- VISION: CONTRAST SENSITIVITY ---
         function initContrast(ui) {
             let contrast = 100;
             const letters = "NHZDSORKSV";
@@ -169,7 +166,6 @@
             };
         }
 
-        // --- VISION: TUMBLING E ---
         function initAcuity(ui) {
             let size = 50;
             const orientations = [0, 90, 180, 270];
@@ -206,7 +202,6 @@
             };
         }
 
-        // --- HEARING: PITCH RANGE ---
         function initPitchRange(ui) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             ui.innerHTML = `
@@ -239,22 +234,20 @@
             };
         }
 
-        // --- ADAPTIVE 3AFC LOGIC (Example: Pitch Threshold) ---
         function initPitchThreshold(ui) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             let referenceFreq = 440;
             let delta = 10;
-            let trials = [];      // To store delta values
-            let results = [];     // To store true/false for markers
+            let trials = [];
+            let results = [];
             let reversals = [];
             let consecutiveCorrect = 0;
             let lastDirection = null;
 
-            // Gradual change: starts fast, gets precise
             const getStepFactor = () => {
-                if (reversals.length < 2) return 1.5; // Large steps initially
-                if (reversals.length < 4) return 1.2; // Medium steps
-                return 1.1;                          // Fine-tuning steps
+                if (reversals.length < 2) return 1.5;
+                if (reversals.length < 4) return 1.2;
+                return 1.1;
             };
 
             function playTrial(isCorrectChoice) {
@@ -316,14 +309,14 @@
                     if (consecutiveCorrect === 2) {
                         if (lastDirection === 'easier') reversals.push(delta);
                         lastDirection = 'harder';
-                        delta /= step; // Decrease difference
+                        delta /= step;
                         consecutiveCorrect = 0;
                     }
                 } else {
                     status.innerText = "Incorrect ❌";
                     if (lastDirection === 'harder') reversals.push(delta);
                     lastDirection = 'easier';
-                    delta *= step; // Increase difference
+                    delta *= step;
                     consecutiveCorrect = 0;
                 }
 
@@ -338,7 +331,6 @@
             };
 
             function finish3AFC() {
-                // Threshold is the average of the last 4 reversal points
                 const lastFour = reversals.slice(-4);
                 const threshold = lastFour.reduce((a, b) => a + b, 0) / 4;
 
@@ -385,7 +377,7 @@
         }
         function initGapDetection(ui) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            let delta = 50; // Starting gap in ms
+            let delta = 50;
             let trials = [], results = [], reversals = [], consecutiveCorrect = 0, lastDirection = null;
 
             const getStepFactor = () => (reversals.length < 2) ? 1.5 : (reversals.length < 4 ? 1.2 : 1.1);
@@ -394,17 +386,16 @@
                 const duration = 0.8;
                 const osc = audioCtx.createOscillator();
                 const g = audioCtx.createGain();
-                osc.type = 'sine'; // Using a 440Hz tone as carrier
+                osc.type = 'sine';
                 osc.frequency.setValueAtTime(440, audioCtx.currentTime);
 
                 g.gain.setValueAtTime(0.1, audioCtx.currentTime);
                 if (isTarget) {
-                    // Create the gap in the middle
                     const now = audioCtx.currentTime;
                     g.gain.setValueAtTime(0.1, now + 0.3);
-                    g.gain.setValueAtTime(0, now + 0.301); // Cut sound
+                    g.gain.setValueAtTime(0, now + 0.301);
                     g.gain.setValueAtTime(0, now + 0.301 + (delta / 1000));
-                    g.gain.setValueAtTime(0.1, now + 0.302 + (delta / 1000)); // Resume sound
+                    g.gain.setValueAtTime(0.1, now + 0.302 + (delta / 1000));
                 }
 
                 osc.connect(g); g.connect(audioCtx.destination);
@@ -455,11 +446,10 @@
             };
         }
 
-        // --- NEW: AMPLITUDE THRESHOLD ---
         function initAmplitudeThreshold(ui) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             let refGain = 0.1;
-            let delta = 0.05; // Starting gain difference
+            let delta = 0.05;
             let trials = [], results = [], reversals = [], consecutiveCorrect = 0, lastDirection = null;
 
             const getStepFactor = () => (reversals.length < 2) ? 1.5 : (reversals.length < 4 ? 1.2 : 1.1);
@@ -468,7 +458,6 @@
                 const osc = audioCtx.createOscillator();
                 const g = audioCtx.createGain();
                 osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-                // Current Gain vs Ref Gain
                 g.gain.setValueAtTime(isTarget ? refGain + delta : refGain, audioCtx.currentTime);
                 osc.connect(g); g.connect(audioCtx.destination);
                 osc.start(); osc.stop(audioCtx.currentTime + 0.5);
@@ -516,7 +505,6 @@
             };
         }
 
-        // Helper to render the final chart (prevents code duplication)
         function finishTest(reversals, trials, results, ui, unit) {
             const threshold = reversals.slice(-4).reduce((a, b) => a + b, 0) / 4;
             ui.innerHTML = `<h3>Test Complete</h3><p>Threshold: <strong>${threshold.toFixed(4)} ${unit}</strong></p><canvas id="resChart"></canvas><button onclick="goHome()">Done</button>`;
