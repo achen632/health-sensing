@@ -4,6 +4,94 @@ from tqdm import tqdm
 import pickle
 import numpy as np
 
+def extract_landmarks(input_path, pkl_output_dir, frame_rate=6):
+    mp_pose = mp.solutions.pose
+    # Using Model 0 (Lite) for maximum speed
+    pose = mp_pose.Pose(static_image_mode=False, model_complexity=0)
+    
+    cap = cv2.VideoCapture(input_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    original_fps = cap.get(cv2.CAP_PROP_FPS)
+    skip_step = max(1, int(original_fps // frame_rate))
+    
+    filename = input_path.split('/')[-1].split('.')[0]
+    pose_data = []
+
+    with tqdm(total=total_frames, desc=f"Extracting {filename}") as pbar:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # Downsample and convert for processing
+            resized = cv2.resize(frame, (320, 180), interpolation=cv2.INTER_NEAREST)
+            img_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+            results = pose.process(img_rgb)
+            
+            if results.pose_landmarks:
+                # Extract Data: Nose (0) + Shoulders down (11-32)
+                head_and_body = [results.pose_landmarks.landmark[0]] + list(results.pose_landmarks.landmark[11:])
+                landmarks = [[lm.x, lm.y, lm.z] for lm in head_and_body]
+                pose_data.append(landmarks)
+            
+            # Jump ahead to maintain target FPS
+            for _ in range(skip_step - 1):
+                cap.grab()
+            pbar.update(skip_step)
+
+    # Save to PKL
+    with open(f"{pkl_output_dir}/{filename}.pkl", 'wb') as f:
+        pickle.dump(pose_data, f)
+
+    cap.release()
+    return pose_data
+
+def save_compressed_video(input_path, video_output_path, frame_rate=6):
+    mp_pose = mp.solutions.pose
+    mp_drawing = mp.solutions.drawing_utils
+    pose = mp_pose.Pose(static_image_mode=False, model_complexity=0)
+    
+    cap = cv2.VideoCapture(input_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    original_fps = cap.get(cv2.CAP_PROP_FPS)
+    skip_step = max(1, int(original_fps // frame_rate))
+    
+    width, height = 320, 180 
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(video_output_path, fourcc, frame_rate, (width, height))
+    filename = input_path.split('/')[-1].split('.')[0]
+
+    with tqdm(total=total_frames, desc=f"Compressing {filename}") as pbar:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            resized = cv2.resize(frame, (width, height), interpolation=cv2.INTER_NEAREST)
+            img_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+            results = pose.process(img_rgb)
+            
+            if results.pose_landmarks:
+                # Hide unwanted head landmarks (1-10) for clean drawing
+                for i in range(1, 11):
+                    results.pose_landmarks.landmark[i].visibility = 0
+                
+                mp_drawing.draw_landmarks(
+                    resized, 
+                    results.pose_landmarks, 
+                    mp_pose.POSE_CONNECTIONS,
+                    landmark_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=1, circle_radius=1),
+                    connection_drawing_spec=mp_drawing.DrawingSpec(color=(0, 200, 0), thickness=1)
+                )
+
+            out.write(resized)
+            for _ in range(skip_step - 1):
+                cap.grab()
+            pbar.update(skip_step)
+
+    cap.release()
+    out.release()
+
 def process_video(input_path, output_path, frame_rate):
     mp_pose = mp.solutions.pose
     mp_drawing = mp.solutions.drawing_utils
